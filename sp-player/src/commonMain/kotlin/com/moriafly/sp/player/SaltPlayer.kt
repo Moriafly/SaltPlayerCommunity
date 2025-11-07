@@ -64,8 +64,7 @@ abstract class SaltPlayer(
     ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : CommandPlayer(
         commandDispatcher = commandDispatcher
-    ),
-    SourceIO {
+    ) {
     private val ioScope = CoroutineScope(ioDispatcher + SupervisorJob())
 
     /**
@@ -183,6 +182,18 @@ abstract class SaltPlayer(
 
     protected abstract suspend fun processLoad(mediaItem: Any?)
 
+    /**
+     * **Thread Unsafe**
+     */
+    protected abstract suspend fun processPrepare()
+
+    protected abstract suspend fun processPrepareCompleted()
+
+    /**
+     * **Thread Unsafe**
+     */
+    protected abstract suspend fun processPrepareCanceled(targetMediaItem: Any?)
+
     protected abstract suspend fun processPlay()
 
     protected abstract suspend fun processPause()
@@ -205,9 +216,12 @@ abstract class SaltPlayer(
         callback = null
     }
 
-    protected abstract suspend fun processSetConfig(config: Config)
+    /**
+     * **Thread Unsafe**
+     */
+    protected abstract suspend fun processSeekTo(position: Long)
 
-    protected abstract suspend fun processPrepareCompleted()
+    protected abstract suspend fun processSetConfig(config: Config)
 
     protected abstract suspend fun processSeekToCompleted()
 
@@ -229,10 +243,27 @@ abstract class SaltPlayer(
                     is InternalCommand.Load -> {
                         state = State.Idle
                         playWhenReady = false
-                        processLoad(command.mediaSource)
+                        processLoad(command.mediaItem)
                     }
 
-                    is InternalCommand.Prepare -> processPrepare()
+                    is InternalCommand.Prepare -> {
+                        val currentMediaItem = getOrThrowCurrentMediaItem()
+
+                        state = State.Buffering
+
+                        prepareIOJob?.cancel()
+                        prepareIOJob =
+                            ioScope.launch {
+                                processPrepare()
+                                if (isActive) {
+                                    // Ready
+                                    sendCommand(InternalCommand.PrepareCompleted)
+                                } else {
+                                    // Release current media source
+                                    processPrepareCanceled(currentMediaItem)
+                                }
+                            }
+                    }
 
                     is InternalCommand.Play -> {
                         if (state == State.Ready) {
@@ -283,7 +314,18 @@ abstract class SaltPlayer(
 
                     is InternalCommand.SeekTo -> {
                         state = State.Buffering
-                        processSeekTo(command.position)
+
+                        seekToIOJob?.cancel()
+                        seekToIOJob =
+                            ioScope.launch {
+                                processSeekTo(command.position)
+                                if (isActive) {
+                                    // Ready
+                                    sendCommand(InternalCommand.SeekToCompleted)
+                                } else {
+                                    // Do nothing
+                                }
+                            }
                     }
 
                     is InternalCommand.Previous -> processPrevious()
@@ -325,58 +367,19 @@ abstract class SaltPlayer(
         }
     }
 
-    @Suppress("RedundantSuspendModifier")
-    private suspend fun processPrepare() {
-        val currentMediaItem = getOrThrowCurrentMediaItem()
-
-        state = State.Buffering
-
-        prepareIOJob?.cancel()
-        prepareIOJob =
-            ioScope.launch {
-                sourcePrepare(currentMediaItem)
-                if (isActive) {
-                    // Ready
-                    sendCommand(InternalCommand.PrepareCompleted)
-                } else {
-                    // Release current media source
-                    sourceRelease(currentMediaItem)
-                }
-            }
-    }
-
-    @Suppress("RedundantSuspendModifier")
-    private suspend fun processSeekTo(position: Long) {
-        val currentMediaItem = getOrThrowCurrentMediaItem()
-
-        state = State.Buffering
-
-        seekToIOJob?.cancel()
-        seekToIOJob =
-            ioScope.launch {
-                sourceSeekTo(currentMediaItem, position)
-                if (isActive) {
-                    // Ready
-                    sendCommand(InternalCommand.SeekToCompleted)
-                } else {
-                    // Do nothing
-                }
-            }
-    }
-
     private suspend fun processPrevious() {
-        provider?.onGetPrevious()?.let {
-            processLoad(it)
-            processPrepare()
-            processPlay()
+        provider?.onGetPrevious()?.let { mediaItem ->
+            load(mediaItem)
+            prepare()
+            play()
         }
     }
 
     private suspend fun processNext() {
-        provider?.onGetNext()?.let {
-            processLoad(it)
-            processPrepare()
-            processPlay()
+        provider?.onGetNext()?.let { mediaItem ->
+            load(mediaItem)
+            prepare()
+            play()
         }
     }
 
