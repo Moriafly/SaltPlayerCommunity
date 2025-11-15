@@ -20,6 +20,7 @@
 
 package com.moriafly.sp.player.internal
 
+import com.moriafly.sp.player.Callback
 import com.moriafly.sp.player.Command
 import com.moriafly.sp.player.Config
 import com.moriafly.sp.player.UnstableSpPlayerApi
@@ -41,6 +42,14 @@ internal sealed interface InternalCommand : Command {
      */
     data class Load(
         val mediaItem: Any?,
+    ) : InternalCommand
+
+    data class AddCallback(
+        val callback: Callback
+    ) : InternalCommand
+
+    data class RemoveCallback(
+        val callback: Callback
     ) : InternalCommand
 
     /**

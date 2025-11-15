@@ -79,15 +79,17 @@ abstract class SaltPlayer(
 
     /**
      * The provider for the underlying player engine.
+     *
+     * TODO Command
      */
     @Volatile
     var provider: Provider? = null
 
     /**
-     * The callbacks to notify when certain events occur.
+     * The list of registered callbacks.
+     * Managed via commands to ensure thread safety.
      */
-    @Volatile
-    var callback: Callback? = null
+    private val callbacks = mutableListOf<Callback>()
 
     /**
      * The current media item being played or loaded
@@ -114,6 +116,20 @@ abstract class SaltPlayer(
      * similar to how AU and other software handle it.
      */
     fun init() = sendCommand(InternalCommand.Init)
+
+    /**
+     * Adds a callback listener.
+     *
+     * @param callback The callback to add.
+     */
+    fun addCallback(callback: Callback) = sendCommand(InternalCommand.AddCallback(callback))
+
+    /**
+     * Removes a callback listener.
+     *
+     * @param callback The callback to remove.
+     */
+    fun removeCallback(callback: Callback) = sendCommand(InternalCommand.RemoveCallback(callback))
 
     /**
      * Loads a media resource. If [mediaItem] is `null`, it unloads the current resource and
@@ -213,7 +229,7 @@ abstract class SaltPlayer(
         ioScope.cancel()
 
         provider = null
-        callback = null
+        callbacks.clear()
     }
 
     /**
@@ -228,7 +244,9 @@ abstract class SaltPlayer(
     protected abstract suspend fun processCustomCommand(command: Command)
 
     protected fun triggerCallbacks(block: (Callback) -> Unit) {
-        callback?.let { block(it) }
+        callbacks.forEach { callback ->
+            block(callback)
+        }
     }
 
     override suspend fun processCommand(command: Command) {
@@ -238,6 +256,16 @@ abstract class SaltPlayer(
                     is InternalCommand.Init -> {
                         processInit()
                         state = State.Idle
+                    }
+
+                    is InternalCommand.AddCallback -> {
+                        if (!callbacks.contains(command.callback)) {
+                            callbacks.add(command.callback)
+                        }
+                    }
+
+                    is InternalCommand.RemoveCallback -> {
+                        callbacks.remove(command.callback)
                     }
 
                     is InternalCommand.Load -> {
