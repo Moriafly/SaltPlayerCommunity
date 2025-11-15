@@ -249,6 +249,17 @@ abstract class SaltPlayer(
         }
     }
 
+    /**
+     * Notifies the state machine that playback has completed.
+     *
+     * This method is intended to be called by subclasses when the underlying
+     * engine reports that it has finished playing.
+     */
+    protected fun notifyPlaybackEnded() {
+        // This method is 'inside' the library module, so it CAN access InternalCommand
+        sendCommand(InternalCommand.OnEnded)
+    }
+
     final override suspend fun processCommand(command: Command) {
         try {
             if (command is InternalCommand) {
