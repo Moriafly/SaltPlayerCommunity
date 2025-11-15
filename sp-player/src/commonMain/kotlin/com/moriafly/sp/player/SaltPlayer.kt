@@ -249,7 +249,7 @@ abstract class SaltPlayer(
         }
     }
 
-    override suspend fun processCommand(command: Command) {
+    final override suspend fun processCommand(command: Command) {
         try {
             if (command is InternalCommand) {
                 when (command) {
