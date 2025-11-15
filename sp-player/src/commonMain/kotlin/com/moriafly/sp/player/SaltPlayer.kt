@@ -254,13 +254,21 @@ abstract class SaltPlayer(
                         prepareIOJob?.cancel()
                         prepareIOJob =
                             ioScope.launch {
-                                processPrepare()
-                                if (isActive) {
-                                    // Ready
-                                    sendCommand(InternalCommand.PrepareCompleted)
-                                } else {
-                                    // Release current media source
-                                    processPrepareCanceled(currentMediaItem)
+                                try {
+                                    processPrepare()
+                                    if (isActive) {
+                                        // Ready
+                                        sendCommand(InternalCommand.PrepareCompleted)
+                                    } else {
+                                        // Release current media source
+                                        processPrepareCanceled(currentMediaItem)
+                                    }
+                                } catch (e: Exception) {
+                                    if (isActive) {
+                                        triggerCallbacks { callback ->
+                                            callback.onRecoverableError(e)
+                                        }
+                                    }
                                 }
                             }
                     }
@@ -313,17 +321,27 @@ abstract class SaltPlayer(
                     }
 
                     is InternalCommand.SeekTo -> {
+                        getOrThrowCurrentMediaItem()
+
                         state = State.Buffering
 
                         seekToIOJob?.cancel()
                         seekToIOJob =
                             ioScope.launch {
-                                processSeekTo(command.position)
-                                if (isActive) {
-                                    // Ready
-                                    sendCommand(InternalCommand.SeekToCompleted)
-                                } else {
-                                    // Do nothing
+                                try {
+                                    processSeekTo(command.position)
+                                    if (isActive) {
+                                        // Ready
+                                        sendCommand(InternalCommand.SeekToCompleted)
+                                    } else {
+                                        // Do nothing
+                                    }
+                                } catch (e: Exception) {
+                                    if (isActive) {
+                                        triggerCallbacks { callback ->
+                                            callback.onRecoverableError(e)
+                                        }
+                                    }
                                 }
                             }
                     }
@@ -390,10 +408,7 @@ abstract class SaltPlayer(
     }
 
     private fun getOrThrowCurrentMediaItem(): Any {
-        val currentMediaItem = mediaItem
-        if (currentMediaItem == null) {
-            throw UnLoadedException()
-        }
+        val currentMediaItem = mediaItem ?: throw UnLoadedException()
         return currentMediaItem
     }
 
